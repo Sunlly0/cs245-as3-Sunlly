@@ -5,10 +5,7 @@ import cs245.as3.interfaces.StorageManager;
 import cs245.as3.interfaces.StorageManager.TaggedValue;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.PriorityQueue;
+import java.util.*;
 
 
 public class TransactionManager {
@@ -32,7 +29,8 @@ public class TransactionManager {
 	private LogManager lm;
 	private StorageManager sm;
 	private PriorityQueue<Long> offsetQueue;
-
+	private HashMap<Long,Long> keyToTag;
+	private ArrayList<Long> Tags;
 	//add method by Sunlly
 
 	private HashMap<Long, ArrayList<LogRecord>> logRecordSets;
@@ -44,6 +42,8 @@ public class TransactionManager {
 
 		//add by Sunlly
 		logRecordSets= new HashMap<>();
+//		keyToTag=new HashMap<>();
+		Tags=new ArrayList<>();
 
 	}
 
@@ -56,43 +56,82 @@ public class TransactionManager {
 		latestValues = sm.readStoredTable();
 		this.lm=lm;
 		this.sm=sm;
+//		writesets = new HashMap<>();
+//		logRecordSets= new HashMap<>();
+//		Tags=new ArrayList<>();
 
 		ArrayList<LogRecord> records = new ArrayList<>();
 		HashSet<Long> committedTxn = new HashSet<>();
+		HashSet<Long> uncommittedTxn =new HashSet<>();
 
 		//从 logManager 中获取日志，读取日志记录
-		for (int offset = lm.getLogTruncationOffset(); offset < lm.getLogEndOffset(); ) {
-			byte[] sizeBytes = lm.readLogRecord(offset, 4);
-			int size = ByteBuffer.wrap(sizeBytes).getInt();
+		int logEndOffset=lm.getLogEndOffset();
+
+		for (int offset = lm.getLogTruncationOffset(); offset < logEndOffset; ) {
+			byte[] sizeBytes = lm.readLogRecord(offset, 20);
+			ByteBuffer wrap = ByteBuffer.wrap(sizeBytes);
+			int type= wrap.getInt();
+			int size = wrap.getInt();
 
 			//解析日志，从 byte到结构体
-			byte[] decodeRecode = lm.readLogRecord(offset, size);
-			LogRecord logRecord = LogRecord.decode(decodeRecode);
+			byte[] encodeRecord = lm.readLogRecord(offset, size);
+			LogRecord logRecord = LogRecord.decode(encodeRecord);
 			logRecord.setOffset(offset);
 
 			//保存records
 			records.add(logRecord);
+			if(!uncommittedTxn.contains(logRecord.getTxnId())){
+				uncommittedTxn.add(logRecord.getTxnId());
+			}
 
 			//保存已经提交的 txnId, 后续做 redo
 			if (LogRecord.COMMIT == logRecord.getType()) {
 				committedTxn.add(logRecord.getTxnId());
+				uncommittedTxn.remove(logRecord.getTxnId());
 			}
 			offset += logRecord.getSize();
 		}
+//		lm.setLogTruncationOffset(logEndOffset);
+
 
 		// redo 已经提交的日志(恢复)
 		for (LogRecord record : records) {
 			long txnId = record.getTxnId();
 			//遍历 records，如果在已经提交的事务列表中，并且是写操作，则做 redo
 			if (committedTxn.contains(txnId) && record.getType() == LogRecord.WRITE ) {
-				int tag = record.getOffset();
-//				offsetQueue.offer(tag);
+				long tag = record.getOffset();
+//				offsetQueue.add(tag);
+//				keyToTag.put(record.getKey(), tag);
+				Tags.add(tag);
 				// 应用日志
+				if(record.getKey()==3&&txnId==74){
+					byte[] value=record.getValue();
+				}
 				sm.queueWrite(record.getKey(), tag, record.getValue());
 				//保存最新值
 				latestValues.put(record.getKey(), new TaggedValue(tag, record.getValue()));
 			}
 		}
+		//问题：如何知道一条 record 是那一个事务写的？
+		if(uncommittedTxn.size()>0){
+			Collections.reverse(records);
+			for (LogRecord record : records) {
+				long txnId = record.getTxnId();
+				//遍历 records，如果在已经提交的事务列表中，并且是写操作，则做 redo
+				if (uncommittedTxn.contains(txnId) && record.getType() == LogRecord.WRITE ) {
+					long tag = record.getOffset();
+//				offsetQueue.add(tag);
+//				keyToTag.put(record.getKey(), tag);
+//				Tags.add(tag);
+					// 应用日志
+					sm.queueWrite(record.getKey(), tag, record.getValue());
+					//保存最新值
+					latestValues.put(record.getKey(), new TaggedValue(tag, record.getValue()));
+				}
+			}
+		}
+
+		lm.setLogTruncationOffset(logEndOffset);
 	}
 
 	/**
@@ -122,41 +161,62 @@ public class TransactionManager {
 		// by Sunlly
 		//写 key-value，此时的写并没有被应用，而是保存到事务的写集中，等待commit时才真正被应用
 		//同时通过日志将操作记录下来
-		ArrayList<LogRecord> logRecordSet = logRecordSets.get(txID);
-		logRecordSet.add(new LogRecord(txID, key, value));
-		logRecordSets.put(txID, logRecordSet);
+//		ArrayList<WritesetEntry> writeset = writesets.get(txID);
+//		writeset.add(new WritesetEntry(key, value));
+//		writesets.put(txID, writeset);
+		writesets.get(txID).add(new WritesetEntry(key, value));
 
-		ArrayList<WritesetEntry> writeset = writesets.get(txID);
-		writeset.add(new WritesetEntry(key, value));
-		writesets.put(txID, writeset);
+//		ArrayList<LogRecord> logRecordSet = logRecordSets.get(txID);
+//		logRecordSet.add(new LogRecord(LogRecord.WRITE,24+ value.length,txID, key, value));
+//		logRecordSets.put(txID, logRecordSet);
+		logRecordSets.get(txID).add(new LogRecord(LogRecord.WRITE,24+ value.length,txID, key, value));
+
 	}
 	/**
 	 * Commits a transaction, and makes its writes visible to subsequent read operations.\
 	 */
 	public void commit(long txID) {
-		//持久化日志
-		LogRecord commitRecord = new LogRecord(LogRecord.COMMIT,txID, -1, new byte[]{});
+  		// 增加 commit 的日志标识
+		LogRecord commitRecord = new LogRecord(LogRecord.COMMIT,24, txID, -1, new byte[]{});
 		ArrayList<LogRecord> logRecordSet = logRecordSets.get(txID);
 		logRecordSet.add(commitRecord);
+//		logRecordSets.put(txID, logRecordSet);
 
+		HashMap<Long,Long> keyToTag = new HashMap<>();
+
+
+		//持久化日志
 		for (LogRecord logRecord : logRecordSet) {
+			if(logRecord.getKey()==3 && txID==74){
+				byte[] value=logRecord.getValue();
+			}
 			byte[] encodeRecord = logRecord.encode(logRecord);
-			lm.appendLogRecord(encodeRecord);
+			long tag = lm.appendLogRecord(encodeRecord);
+			keyToTag.put(logRecord.getKey(), tag);
 //			keyToOffset.put(logRecord.getKey(), offset);
+			Tags.add(tag);
+			sm.queueWrite(logRecord.getKey(), tag, logRecord.getValue());
 		}
 
-		logRecordSets.put(txID, logRecordSet);
-
-		//持久化
+		//持久化写操作
 		ArrayList<WritesetEntry> writeset = writesets.get(txID);
 		if (writeset != null) {
 			for(WritesetEntry x : writeset) {
-				//tag is unused in this implementation:
-				long tag = 0;
-				// queueWrite 写入
-				sm.queueWrite(x.key, tag, x.value);
+				long tag=keyToTag.get(x.key);
+//				sm.queueWrite(x.key, tag, x.value);
 				latestValues.put(x.key, new TaggedValue(tag, x.value));
 			}
+//				//tag is unused in this implementation:
+
+//				Tags.add(tag);
+//				// queueWrite 写入
+//				sm.queueWrite(x.key, tag, x.value);
+//				//使该修改对其他事务可见
+//				latestValues.put(x.key, new TaggedValue(tag, x.value));
+//				if (Tags.contains(tag)) {
+//					Tags.remove(tag);
+//				}
+//			}
 			writesets.remove(txID);
 		}
 	}
@@ -172,10 +232,35 @@ public class TransactionManager {
 	 * The storage manager will call back into this procedure every time a queued write becomes persistent.
 	 * These calls are in order of writes to a key and will occur once for every such queued write, unless a crash occurs.
 	 */
+
+	// 找hashmap 的最小值 by Sunlly
+//	public static long getMinValue(HashMap<Long,Long> map) {
+//		Collection c = map.values();
+//		Object[] obj = c.toArray();
+//		Arrays.sort(obj);
+//		return Long.valueOf(String.valueOf(obj[0])).longValue();
+//	}
+
+	public static long getMinTag(ArrayList<Long> array) {
+		array.sort(Comparator.naturalOrder());
+		return array.get(0);
+	}
+
 	public void writePersisted(long key, long persisted_tag, byte[] persisted_value) {
-		if (persisted_tag == offsetQueue.peek()) {
-			lm.setLogTruncationOffset((int)persisted_tag);
+
+		// 如果 persisted_tag 是所有tag中的最小值，则可以截断
+		//有些事务可能没有成功
+//		if (!keyToTag.isEmpty()) {
+
+		if (!Tags.isEmpty()) {
+//			long min_tag=this.getMinValue(keyToTag);
+			long min_tag=this.getMinTag(Tags);
+			if (min_tag >= persisted_tag && min_tag>=lm.getLogTruncationOffset()){
+				lm.setLogTruncationOffset((int)persisted_tag);
+			}
 		}
-		offsetQueue.remove(persisted_tag);
+//		keyToTag.remove(key,persisted_tag);
+		Tags.remove(persisted_tag);
+
 	}
 }

@@ -41,8 +41,9 @@ public class LogRecord {
         this.value = value;
     }
 
-    public LogRecord(int type, long txnId, long key, byte[] value) {
+    public LogRecord(int type, int size,long txnId, long key, byte[] value) {
         this.type = type;
+        this.size= size;
         this.txnId = txnId;
         this.key = key;
         this.value = value;
@@ -76,10 +77,11 @@ public class LogRecord {
     }
 
     public static byte[] encode(LogRecord l) {
-        int size = 24 + l.value.length; // OPS
+        int size = 24 + l.value.length;
         l.setSize(size);
         ByteBuffer allocate = ByteBuffer.allocate(size);
-        allocate.putInt(l.size)
+        allocate.putInt(l.type)
+                .putInt(l.size)
                 .putLong(l.txnId)
                 .putLong(l.key)
                 .put(l.value);
@@ -88,12 +90,14 @@ public class LogRecord {
 
     public static LogRecord decode(byte[] bytes) {
         ByteBuffer wrap = ByteBuffer.wrap(bytes);
+        int type = wrap.getInt();
         int size = wrap.getInt();
         long tnxId = wrap.getLong();
         long key = wrap.getLong();
 //		int state = wrap.getInt();
         byte[] values = new byte[size - wrap.position()];
+//        byte[] values = new byte[size - wrap.position()];
         wrap.get(values);
-        return new LogRecord(size, tnxId, key, values);
+        return new LogRecord(type, size, tnxId, key, values);
     }
 }
