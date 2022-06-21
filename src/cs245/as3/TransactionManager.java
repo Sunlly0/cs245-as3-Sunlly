@@ -28,7 +28,7 @@ public class TransactionManager {
 	// add struct by Sunlly
 	private LogManager lm;
 	private StorageManager sm;
-	private PriorityQueue<Long> offsetQueue;
+//	private PriorityQueue<Long> offsetQueue;
 	private HashMap<Long,Long> keyToTag;
 	private ArrayList<Long> Tags;
 	//add method by Sunlly
@@ -42,7 +42,7 @@ public class TransactionManager {
 
 		//add by Sunlly
 		logRecordSets= new HashMap<>();
-//		keyToTag=new HashMap<>();
+		keyToTag=new HashMap<>();
 		Tags=new ArrayList<>();
 
 	}
@@ -56,13 +56,10 @@ public class TransactionManager {
 		latestValues = sm.readStoredTable();
 		this.lm=lm;
 		this.sm=sm;
-//		writesets = new HashMap<>();
-//		logRecordSets= new HashMap<>();
-//		Tags=new ArrayList<>();
 
 		ArrayList<LogRecord> records = new ArrayList<>();
 		HashSet<Long> committedTxn = new HashSet<>();
-		HashSet<Long> uncommittedTxn =new HashSet<>();
+//		HashSet<Long> uncommittedTxn =new HashSet<>();
 
 		//从 logManager 中获取日志，读取日志记录
 		int logEndOffset=lm.getLogEndOffset();
@@ -80,19 +77,18 @@ public class TransactionManager {
 
 			//保存records
 			records.add(logRecord);
-			if(!uncommittedTxn.contains(logRecord.getTxnId())){
-				uncommittedTxn.add(logRecord.getTxnId());
-			}
+//			if(!uncommittedTxn.contains(logRecord.getTxnId())){
+//				uncommittedTxn.add(logRecord.getTxnId());
+//			}
 
 			//保存已经提交的 txnId, 后续做 redo
 			if (LogRecord.COMMIT == logRecord.getType()) {
 				committedTxn.add(logRecord.getTxnId());
-				uncommittedTxn.remove(logRecord.getTxnId());
+//				uncommittedTxn.remove(logRecord.getTxnId());
 			}
 			offset += logRecord.getSize();
 		}
 //		lm.setLogTruncationOffset(logEndOffset);
-
 
 		// redo 已经提交的日志(恢复)
 		for (LogRecord record : records) {
@@ -100,34 +96,21 @@ public class TransactionManager {
 			//遍历 records，如果在已经提交的事务列表中，并且是写操作，则做 redo
 			if (committedTxn.contains(txnId) && record.getType() == LogRecord.WRITE ) {
 				long tag = record.getOffset();
-//				offsetQueue.add(tag);
-//				keyToTag.put(record.getKey(), tag);
+				keyToTag.put(record.getKey(), tag);
 				Tags.add(tag);
 				// 应用日志
-				if(record.getKey()==3&&txnId==74){
+				if(record.getKey()==4){
 					byte[] value=record.getValue();
+					System.out.println("redo: txnId:"+txnId+" tag:"+tag+" value:"+Arrays.toString(value));
+					if(txnId==24){
+						System.out.println("redo: txnId:"+txnId+" tag:"+tag+" value:"+Arrays.toString(value));
+					}
 				}
+				//queueWrite: 修改了 lastVersion，但还没有真正持久化。（persisted_version）
 				sm.queueWrite(record.getKey(), tag, record.getValue());
+
 				//保存最新值
 				latestValues.put(record.getKey(), new TaggedValue(tag, record.getValue()));
-			}
-		}
-		//问题：如何知道一条 record 是那一个事务写的？
-		if(uncommittedTxn.size()>0){
-			Collections.reverse(records);
-			for (LogRecord record : records) {
-				long txnId = record.getTxnId();
-				//遍历 records，如果在已经提交的事务列表中，并且是写操作，则做 redo
-				if (uncommittedTxn.contains(txnId) && record.getType() == LogRecord.WRITE ) {
-					long tag = record.getOffset();
-//				offsetQueue.add(tag);
-//				keyToTag.put(record.getKey(), tag);
-//				Tags.add(tag);
-					// 应用日志
-					sm.queueWrite(record.getKey(), tag, record.getValue());
-					//保存最新值
-					latestValues.put(record.getKey(), new TaggedValue(tag, record.getValue()));
-				}
 			}
 		}
 
@@ -182,20 +165,25 @@ public class TransactionManager {
 		logRecordSet.add(commitRecord);
 //		logRecordSets.put(txID, logRecordSet);
 
-		HashMap<Long,Long> keyToTag = new HashMap<>();
-
+		HashMap<Long,Long> keyTag = new HashMap<>();
 
 		//持久化日志
 		for (LogRecord logRecord : logRecordSet) {
-			if(logRecord.getKey()==3 && txID==74){
-				byte[] value=logRecord.getValue();
-			}
+
 			byte[] encodeRecord = logRecord.encode(logRecord);
 			long tag = lm.appendLogRecord(encodeRecord);
-			keyToTag.put(logRecord.getKey(), tag);
+			if(logRecord.getKey()==4){
+				byte[] value=logRecord.getValue();
+				System.out.println("commit: txnId:"+txID+" tag:"+tag+" value:"+Arrays.toString(value));
+				if(txID==24){
+					System.out.println(value);
+				}
+			}
+			keyTag.put(logRecord.getKey(), tag);
 //			keyToOffset.put(logRecord.getKey(), offset);
 			Tags.add(tag);
-			sm.queueWrite(logRecord.getKey(), tag, logRecord.getValue());
+			keyToTag.put(logRecord.getKey(),tag);
+//			sm.queueWrite(logRecord.getKey(), tag, logRecord.getValue());
 		}
 
 		//持久化写操作
@@ -203,7 +191,7 @@ public class TransactionManager {
 		if (writeset != null) {
 			for(WritesetEntry x : writeset) {
 				long tag=keyToTag.get(x.key);
-//				sm.queueWrite(x.key, tag, x.value);
+				sm.queueWrite(x.key, tag, x.value);
 				latestValues.put(x.key, new TaggedValue(tag, x.value));
 			}
 //				//tag is unused in this implementation:
@@ -234,12 +222,12 @@ public class TransactionManager {
 	 */
 
 	// 找hashmap 的最小值 by Sunlly
-//	public static long getMinValue(HashMap<Long,Long> map) {
-//		Collection c = map.values();
-//		Object[] obj = c.toArray();
-//		Arrays.sort(obj);
-//		return Long.valueOf(String.valueOf(obj[0])).longValue();
-//	}
+	public static long getMinValue(HashMap<Long,Long> map) {
+		Collection c = map.values();
+		Object[] obj = c.toArray();
+		Arrays.sort(obj);
+		return Long.valueOf(String.valueOf(obj[0])).longValue();
+	}
 
 	public static long getMinTag(ArrayList<Long> array) {
 		array.sort(Comparator.naturalOrder());
@@ -250,17 +238,18 @@ public class TransactionManager {
 
 		// 如果 persisted_tag 是所有tag中的最小值，则可以截断
 		//有些事务可能没有成功
-//		if (!keyToTag.isEmpty()) {
-
-		if (!Tags.isEmpty()) {
-//			long min_tag=this.getMinValue(keyToTag);
-			long min_tag=this.getMinTag(Tags);
+		if (!keyToTag.isEmpty()) {
+//		if (!Tags.isEmpty()) {
+			long min_tag=this.getMinValue(keyToTag);
+//			long min_tag=this.getMinTag(Tags);
 			if (min_tag >= persisted_tag && min_tag>=lm.getLogTruncationOffset()){
-				lm.setLogTruncationOffset((int)persisted_tag);
+//				lm.setLogTruncationOffset((int)persisted_tag);
+				lm.setLogTruncationOffset((int)min_tag);
+//				keyToTag.remove(key,min_tag);
 			}
 		}
-//		keyToTag.remove(key,persisted_tag);
-		Tags.remove(persisted_tag);
+		keyToTag.remove(key,persisted_tag);
+//		Tags.remove(persisted_tag);
 
 	}
 }

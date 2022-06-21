@@ -23,7 +23,8 @@ public class TransactionManagerTests {
     protected static long[] TEST_SEEDS = new long[] {0x12345671234567L, 0x1000, 42, 9};
     
 	@Rule
-    public Timeout globalTimeout = Timeout.seconds(60);
+//    public Timeout globalTimeout = Timeout.seconds(60);
+	public Timeout globalTimeout = Timeout.seconds(500);
 	
 	public void TestTransactionTemplate(boolean check_recovery) {
     	int errors = 0;
