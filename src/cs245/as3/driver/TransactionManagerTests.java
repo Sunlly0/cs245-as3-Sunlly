@@ -23,8 +23,9 @@ public class TransactionManagerTests {
     protected static long[] TEST_SEEDS = new long[] {0x12345671234567L, 0x1000, 42, 9};
     
 	@Rule
-//    public Timeout globalTimeout = Timeout.seconds(60);
-	public Timeout globalTimeout = Timeout.seconds(500);
+    public Timeout globalTimeout = Timeout.seconds(60);
+	//debug by Sunlly
+//	public Timeout globalTimeout = Timeout.seconds(500);
 	
 	public void TestTransactionTemplate(boolean check_recovery) {
     	int errors = 0;
@@ -505,6 +506,10 @@ public class TransactionManagerTests {
 					crashesDescription=String.format("After %d crashes, v", numCrashes);
 				}
 				byte[] read = tm.read(TXidforRead, entry.getKey());
+				//debug by Sunlly
+//				if(read==null){
+//					System.out.printf("wrong with null read.");
+//				}
 				if (!Arrays.equals(entry.getValue(), read)) {
 					System.out.printf("%salue for key %d did not match what was committed (wanted %s..., got %s...).",
 							crashesDescription,

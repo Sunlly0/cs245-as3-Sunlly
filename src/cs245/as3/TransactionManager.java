@@ -28,9 +28,8 @@ public class TransactionManager {
 	// add struct by Sunlly
 	private LogManager lm;
 	private StorageManager sm;
-//	private PriorityQueue<Long> offsetQueue;
 	private HashMap<Long,Long> keyToTag;
-	private ArrayList<Long> Tags;
+//	private ArrayList<Long> Tags;
 	//add method by Sunlly
 
 	private HashMap<Long, ArrayList<LogRecord>> logRecordSets;
@@ -38,13 +37,12 @@ public class TransactionManager {
 	public TransactionManager() {
 		writesets = new HashMap<>();
 		//see initAndRecover
-		latestValues = null;
+		latestValues = new HashMap<>();
 
 		//add by Sunlly
 		logRecordSets= new HashMap<>();
 		keyToTag=new HashMap<>();
-		Tags=new ArrayList<>();
-
+//		Tags=new ArrayList<>();
 	}
 
 	/**
@@ -59,7 +57,6 @@ public class TransactionManager {
 
 		ArrayList<LogRecord> records = new ArrayList<>();
 		HashSet<Long> committedTxn = new HashSet<>();
-//		HashSet<Long> uncommittedTxn =new HashSet<>();
 
 		//从 logManager 中获取日志，读取日志记录
 		int logEndOffset=lm.getLogEndOffset();
@@ -77,14 +74,10 @@ public class TransactionManager {
 
 			//保存records
 			records.add(logRecord);
-//			if(!uncommittedTxn.contains(logRecord.getTxnId())){
-//				uncommittedTxn.add(logRecord.getTxnId());
-//			}
 
 			//保存已经提交的 txnId, 后续做 redo
 			if (LogRecord.COMMIT == logRecord.getType()) {
 				committedTxn.add(logRecord.getTxnId());
-//				uncommittedTxn.remove(logRecord.getTxnId());
 			}
 			offset += logRecord.getSize();
 		}
@@ -96,25 +89,27 @@ public class TransactionManager {
 			//遍历 records，如果在已经提交的事务列表中，并且是写操作，则做 redo
 			if (committedTxn.contains(txnId) && record.getType() == LogRecord.WRITE ) {
 				long tag = record.getOffset();
-				keyToTag.put(record.getKey(), tag);
-				Tags.add(tag);
+//				keyToTag.put(record.getKey(), tag);
+//				Tags.add(tag);
 				// 应用日志
-				if(record.getKey()==4){
-					byte[] value=record.getValue();
-					System.out.println("redo: txnId:"+txnId+" tag:"+tag+" value:"+Arrays.toString(value));
-					if(txnId==24){
-						System.out.println("redo: txnId:"+txnId+" tag:"+tag+" value:"+Arrays.toString(value));
-					}
-				}
-				//queueWrite: 修改了 lastVersion，但还没有真正持久化。（persisted_version）
-				sm.queueWrite(record.getKey(), tag, record.getValue());
-
+				// debug by Sunlly
+//				if(record.getKey()==2){
+//					byte[] value=record.getValue();
+//					System.out.println("redo: txnId:"+txnId+" key:"+record.getKey()+" tag:"+tag+" value:"+Arrays.toString(value));
+//					if(txnId==3){
+//						System.out.println("redo: txnId:"+txnId+" key:"+record.getKey()+" tag:"+tag+" value:"+Arrays.toString(value));
+//					}
+//				}
 				//保存最新值
 				latestValues.put(record.getKey(), new TaggedValue(tag, record.getValue()));
+				//queueWrite: 修改了 lastVersion，但还没有真正持久化。（persisted_version）
+				sm.queueWrite(record.getKey(), tag, record.getValue());
+				keyToTag.put(record.getKey(), tag);
+
+
 			}
 		}
-
-		lm.setLogTruncationOffset(logEndOffset);
+//		lm.setLogTruncationOffset(logEndOffset);
 	}
 
 	/**
@@ -122,8 +117,8 @@ public class TransactionManager {
 	 */
 	public void start(long txID) {
 		// TODO: Not implemented for non-durable transactions, you should implement this
-		writesets.put(txID,new ArrayList<>());
-		logRecordSets.put(txID,new ArrayList<>());
+//		writesets.put(txID,new ArrayList<>());
+//		logRecordSets.put(txID,new ArrayList<>());
 	}
 
 	/**
@@ -144,15 +139,19 @@ public class TransactionManager {
 		// by Sunlly
 		//写 key-value，此时的写并没有被应用，而是保存到事务的写集中，等待commit时才真正被应用
 		//同时通过日志将操作记录下来
-//		ArrayList<WritesetEntry> writeset = writesets.get(txID);
-//		writeset.add(new WritesetEntry(key, value));
-//		writesets.put(txID, writeset);
-		writesets.get(txID).add(new WritesetEntry(key, value));
+		ArrayList<WritesetEntry> writeset = writesets.get(txID);
+		if(writeset==null){
+			writeset=new ArrayList<>();
+			writesets.put(txID,writeset);
+		}
+		writeset.add(new WritesetEntry(key, value));
 
-//		ArrayList<LogRecord> logRecordSet = logRecordSets.get(txID);
-//		logRecordSet.add(new LogRecord(LogRecord.WRITE,24+ value.length,txID, key, value));
-//		logRecordSets.put(txID, logRecordSet);
-		logRecordSets.get(txID).add(new LogRecord(LogRecord.WRITE,24+ value.length,txID, key, value));
+		ArrayList<LogRecord> logRecordSet = logRecordSets.get(txID);
+		if(logRecordSet==null){
+			logRecordSet=new ArrayList<>();
+			logRecordSets.put(txID,logRecordSet);
+		}
+		logRecordSet.add(new LogRecord(LogRecord.WRITE,24+ value.length,txID, key, value));
 
 	}
 	/**
@@ -163,26 +162,25 @@ public class TransactionManager {
 		LogRecord commitRecord = new LogRecord(LogRecord.COMMIT,24, txID, -1, new byte[]{});
 		ArrayList<LogRecord> logRecordSet = logRecordSets.get(txID);
 		logRecordSet.add(commitRecord);
-//		logRecordSets.put(txID, logRecordSet);
 
-		HashMap<Long,Long> keyTag = new HashMap<>();
+		HashMap<Long,Long> keyTags = new HashMap<>();
 
 		//持久化日志
 		for (LogRecord logRecord : logRecordSet) {
 
 			byte[] encodeRecord = logRecord.encode(logRecord);
 			long tag = lm.appendLogRecord(encodeRecord);
-			if(logRecord.getKey()==4){
-				byte[] value=logRecord.getValue();
-				System.out.println("commit: txnId:"+txID+" tag:"+tag+" value:"+Arrays.toString(value));
-				if(txID==24){
-					System.out.println(value);
-				}
-			}
-			keyTag.put(logRecord.getKey(), tag);
-//			keyToOffset.put(logRecord.getKey(), offset);
-			Tags.add(tag);
-			keyToTag.put(logRecord.getKey(),tag);
+			// debug by Sunlly
+//			if(logRecord.getKey()==2){
+//				byte[] value=logRecord.getValue();
+//				System.out.println("commit: txnId:"+txID+" key:"+logRecord.getKey()+" tag:"+tag+" value:"+Arrays.toString(value));
+//				if(txID==3){
+//					System.out.println(value);
+//				}
+//			}
+//			keyTag.put(logRecord.getKey(), tag);
+			keyTags.put(logRecord.getKey(),tag);
+//			keyToTag.put(logRecord.getKey(),tag);
 //			sm.queueWrite(logRecord.getKey(), tag, logRecord.getValue());
 		}
 
@@ -190,9 +188,11 @@ public class TransactionManager {
 		ArrayList<WritesetEntry> writeset = writesets.get(txID);
 		if (writeset != null) {
 			for(WritesetEntry x : writeset) {
-				long tag=keyToTag.get(x.key);
-				sm.queueWrite(x.key, tag, x.value);
+//				long tag=keyToTag.get(x.key);
+				long tag=keyTags.get(x.key);
 				latestValues.put(x.key, new TaggedValue(tag, x.value));
+				sm.queueWrite(x.key, tag, x.value);
+				keyToTag.put(x.key,tag);
 			}
 //				//tag is unused in this implementation:
 
@@ -229,10 +229,10 @@ public class TransactionManager {
 		return Long.valueOf(String.valueOf(obj[0])).longValue();
 	}
 
-	public static long getMinTag(ArrayList<Long> array) {
-		array.sort(Comparator.naturalOrder());
-		return array.get(0);
-	}
+//	public static long getMinTag(ArrayList<Long> array) {
+//		array.sort(Comparator.naturalOrder());
+//		return array.get(0);
+//	}
 
 	public void writePersisted(long key, long persisted_tag, byte[] persisted_value) {
 
@@ -242,13 +242,14 @@ public class TransactionManager {
 //		if (!Tags.isEmpty()) {
 			long min_tag=this.getMinValue(keyToTag);
 //			long min_tag=this.getMinTag(Tags);
-			if (min_tag >= persisted_tag && min_tag>=lm.getLogTruncationOffset()){
-//				lm.setLogTruncationOffset((int)persisted_tag);
-				lm.setLogTruncationOffset((int)min_tag);
+			if (min_tag == persisted_tag && min_tag>=lm.getLogTruncationOffset()){
+				lm.setLogTruncationOffset((int)persisted_tag);
+//				lm.setLogTruncationOffset((int)min_tag);
 //				keyToTag.remove(key,min_tag);
 			}
 		}
 		keyToTag.remove(key,persisted_tag);
+//		latestValues.put(key, new TaggedValue(persisted_tag, persisted_value));
 //		Tags.remove(persisted_tag);
 
 	}
