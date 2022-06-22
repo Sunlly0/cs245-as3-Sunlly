@@ -1,42 +1,3 @@
-**Replicating gradescope tests locally**
-
-The code can be compiled using Maven; the following command generates a jar file
-for the entire project,
-
-```bash
-mvn package
-```
-
-You can simulate what the grader machines will do by running the autograder
-script as follows:
-
-```bash
-java -Xmx1536m -Xms1536m -jar target/tests.jar
-```
-
-This will output a json file that should match the graded tests run on
-gradescope.
-
-**Submitting your solution**
-
-Run
-```bash
-create_submission.sh
-```
-
-This will create a file student_submission.zip that you should upload to
-gradescope.
-
-Alternatively, just make a zip file containing **only** TransactionManager.java
-with no directory structure and upload that.
-
-**Teaching Staff Autograder Setup**
-
-Create Autograder files and upload zip archive to Gradescope.
-
-```bash
-bash make_autograder.sh
-```
 
 ## cs-245-as3 Summary
 
@@ -173,6 +134,7 @@ private HashMap<Long,Long> keyToTag;
 
 在持久化时，需要判断当前持久化的 persisted_tag 是否是keyToTag 中记录的最小值。如果是，则说明当前持久化的 tag  是待持久化的最早的日志了，没有更早的日志还未持久化。因此可以把persisted_tag 以前的日志截断。（调用 `lm.setLogTruncationOffset()`）
 
+（ps：其实选 HashMap 存 tag 不太好，每次找最小的时候都需要遍历所有的 value，导致性能较差。选择 堆 可能会方便些，也有用 优先级队列 的实现。）
 
 ### 测试结果
 
