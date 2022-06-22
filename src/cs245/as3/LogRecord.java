@@ -26,7 +26,7 @@ public class LogRecord {
     // abort=2
     public static int WRITE = 0; //write
     public static int COMMIT = 1; // commit record
-    public static int ABORT = 2; // commit record
+//    public static int ABORT = 2; // commit record
     private int type;
     private long txnId;
     private long key;

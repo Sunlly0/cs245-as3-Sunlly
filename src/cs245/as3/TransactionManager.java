@@ -105,8 +105,6 @@ public class TransactionManager {
 				//queueWrite: 修改了 lastVersion，但还没有真正持久化。（persisted_version）
 				sm.queueWrite(record.getKey(), tag, record.getValue());
 				keyToTag.put(record.getKey(), tag);
-
-
 			}
 		}
 //		lm.setLogTruncationOffset(logEndOffset);
